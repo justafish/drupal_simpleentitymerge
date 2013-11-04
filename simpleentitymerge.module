@@ -1,0 +1,30 @@
+<?php
+
+/**
+ * Implements hook_menu().
+ */
+function simpleentitymerge_menu() {
+  $items = array();
+  $items['admin/simpleentitymerge'] = array(
+    'title' => 'Simple Entity Merge',
+    'description' => 'Return item for original entity.',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('simpleentitymerge_admin_form'),
+    'access arguments' => array('use simpleentitymerge'),
+    'file' => 'simpleentitymerge.admin.inc',
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ */
+function simpleentitymerge_permission() {
+  return array(
+    'use simpleentitymerge' => array(
+      'title' => t('Use Simple Entity Merge'),
+      'description' => t('Perform administration tasks for simpleentitymerge.'),
+    ),
+  );
+}

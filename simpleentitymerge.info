@@ -1,0 +1,6 @@
+name = "Simple Entity Merge"
+description = "Allows two entity instances, such as nodes, to be merged together"
+core = "7.x"
+
+dependencies[] = entityreference_autocomplete
+dependencies[] = entity

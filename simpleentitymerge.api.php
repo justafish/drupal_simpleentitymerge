@@ -1,8 +1,13 @@
 <?php
 
-function hook_simpleentitymerge_save() {
+/**
+ * Get the unique ID name for an entity.
+ *
+ * @return array
+ */
+function hook_simpleentitymerge_ids() {
   return array(
-    'bean' => 'bean_save',
-    'user' => 'user_save',
+    'bean' => 'bid',
+    'user' => 'uid',
   );
 }

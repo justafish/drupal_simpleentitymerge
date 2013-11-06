@@ -167,69 +167,6 @@ function simpleentitymerge_admin_form($form, &$form_state) {
         }
       }
       break;
-
-    case 'overwrite fields':
-      $source_type = !empty($form_state['values']['source_type']) ? $form_state['values']['source_type'] : false;
-      $source_id = !empty($form_state['values']['source_id']) ? $form_state['values']['source_id'] : false;
-      $target_type = !empty($form_state['values']['target_type']) ? $form_state['values']['target_type'] : false;
-      $target_id = !empty($form_state['values']['target_id']) ? $form_state['values']['target_id'] : false;
-      $fields = !empty($form_state['values']['fields']) ? $form_state['values']['fields'] : array();
-      $form['finished'] = array(
-        '#type' => 'item',
-        '#title' => 'Completed',
-        '#markup' => t('Sorry, there was a problem'),
-      );
-      if ($source_type && $source_id && $target_type && $target_id) {
-        $source_entity = entity_load($source_type, array($source_id));
-        $target_entity = entity_load($target_type, array($target_id));
-        if (!empty($source_entity[$source_id]) && !empty($target_entity[$target_id])) {
-
-          // Filter out which fields the user selected to overwrite.
-          foreach ($fields as $field_name => $info) {
-            if ($info['doit'] === 0) {
-              unset($fields[$field_name]);
-            }
-          }
-          $fields = array_keys($fields);
-
-          // Merge the fields.
-          _simpleentitymerge_merge_entities($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type, $fields);
-          $target_uri = entity_uri($target_type, $target_entity[$target_id]);
-          $text = !empty($target_uri['path']) && !empty($target_uri['options']) ? l(t('Complete'), $target_uri['path'], $target_uri['options']) : t('Completed item');
-          $form['finished']['#markup'] = $text;
-
-          // Update entity reference fields.
-          if ($form_state['values']['update_references'] === 1) {
-            $context = array(
-              'finished' => 0,
-            );
-            while ($context['finished'] !== 1) {
-              _simpleentitymerge_update_references_field($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type, $context);
-            }
-          }
-
-          // Update authoring information when merging together two users.
-          if (isset($form_state['values']['update_author']) && $form_state['values']['update_author'] === 1) {
-            $context = array(
-              'finished' => 0,
-            );
-            _simpleentitymerge_update_author($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type, $context);
-          }
-
-          // Delete the source entity.
-          if ($form_state['values']['delete_source'] === 1) {
-            try {
-              entity_delete($source_type, $source_id);
-            }
-            catch (Exception $e) {
-              $form['finished']['#markup'] .= '<br />' . t('The source was not deleted');
-            }
-          }
-        }
-      }
-      $form['finished']['#markup'] .= '<br /><br />' . l(t('Merge another'), 'admin/simpleentitymerge');
-      $form_state['stage'] = 'finished';
-      break;
   }
 
   if ($form_state['stage'] !== 'finished') {
@@ -249,26 +186,65 @@ function simpleentitymerge_admin_form($form, &$form_state) {
  * @param array $form_state
  */
 function simpleentitymerge_admin_form_submit($form, &$form_state) {
-  $form_state['rebuild'] = TRUE;
-}
+  if ($form_state['stage'] === 'overwrite fields') {
+    $source_type = !empty($form_state['values']['source_type']) ? $form_state['values']['source_type'] : false;
+    $source_id = !empty($form_state['values']['source_id']) ? $form_state['values']['source_id'] : false;
+    $target_type = !empty($form_state['values']['target_type']) ? $form_state['values']['target_type'] : false;
+    $target_id = !empty($form_state['values']['target_id']) ? $form_state['values']['target_id'] : false;
+    $fields = !empty($form_state['values']['fields']) ? $form_state['values']['fields'] : array();
 
-function _simpleentitymerge_entity_id($entity_type) {
-  switch ($entity_type) {
-    case 'node':
-      return 'nid';
-    case 'user':
-      return 'uid';
-    case 'taxonomy_term':
-      return 'tid';
-    case 'comment':
-      return 'cid';
-  }
-  $other_ids = module_invoke_all('simpleentitymerge_ids');
-  if (!empty($other_ids[$entity_type])) {
-    return $other_ids[$entity_type];
-  }
+    if ($source_type && $source_id && $target_type && $target_id) {
+      $source_entity = entity_load($source_type, array($source_id));
+      $target_entity = entity_load($target_type, array($target_id));
+      if (!empty($source_entity[$source_id]) && !empty($target_entity[$target_id])) {
 
-  return FALSE;
+        // Filter out which fields the user selected to overwrite.
+        foreach ($fields as $field_name => $info) {
+          if ($info['doit'] === 0) {
+            unset($fields[$field_name]);
+          }
+        }
+        $fields = array_keys($fields);
+
+        // Merge the fields.
+        _simpleentitymerge_merge_entities($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type, $fields);
+        $target_uri = entity_uri($target_type, $target_entity[$target_id]);
+        $text = !empty($target_uri['path']) && !empty($target_uri['options']) ? l(t('Complete'), $target_uri['path'], $target_uri['options']) : t('Completed item');
+        $form['finished']['#markup'] = $text;
+
+        $batch = array(
+          'title' => t('Updating Entities'),
+          'operations' => array(),
+          'finished' => '_simpleentitymerge_update_references_field_finished',
+          'file' => drupal_get_path('module', 'simpleentitymerge') . '/simpleentitymerge.admin.inc',
+        );
+
+        // Update entity reference fields.
+        if ($form_state['values']['update_references'] === 1) {
+          $batch['operations'][] = array('_simpleentitymerge_update_references_field', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
+        }
+
+        // Update authoring information when merging together two users.
+        if (isset($form_state['values']['update_author']) && $form_state['values']['update_author'] === 1) {
+          $batch['operations'][] = array('_simpleentitymerge_update_author', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
+        }
+
+        // Delete the source entity.
+        if ($form_state['values']['delete_source'] === 1) {
+          $batch['operations'][] = array('_simpleentitymerge_delete_entity', array($source_type, $source_id));
+        }
+
+        if (!empty($batch['operations'])) {
+          batch_set($batch);
+        }
+      }
+    }
+    $form_state['stage'] = 'finished';
+    drupal_set_message(t('Completed'));
+  }
+  else {
+    $form_state['rebuild'] = TRUE;
+  }
 }
 
 /**
@@ -308,41 +284,112 @@ function _simpleentitymerge_merge_entities($entity_source, $entity_source_type, 
  */
 function _simpleentitymerge_update_references_field($entity_source, $entity_source_type, $entity_target, $entity_target_type, &$context) {
   if (empty($context['sandbox'])) {
-    $field_info_fields = field_info_fields();
     $context['sandbox']['entities'] = entity_get_info();
+    $context['sandbox']['entity_types'] = array_keys($context['sandbox']['entities']);
+    $context['sandbox']['entity_types_total'] = count($context['sandbox']['entity_types']);
+    $context['sandbox']['current_entity'] = array_shift($context['sandbox']['entity_types']);
+
+    $context['sandbox']['fields'] = array();
+    $field_info_fields = field_info_fields();
     foreach ($field_info_fields as $field_name => $field) {
-      if ($field['module'] === 'entityreference' && $field['type'] === 'entityreference') {
+      if ($field['module'] === 'entityreference' && $field['type'] === 'entityreference' && in_array($entity_source_type, array_keys($field['bundles'])) && in_array($entity_target_type, array_keys($field['bundles']))) {
         $context['sandbox']['fields'][$field_name] = $field;
       }
     }
-    $context['sandbox']['current_field'] = array_shift($context['sandbox']['fields']);
-  }
+    $context['sandbox']['field_names'] = array_keys($context['sandbox']['fields']);
+    $context['sandbox']['fields_total'] = count($context['sandbox']['fields']);
+    $context['sandbox']['current_field'] = array_shift($context['sandbox']['field_names']);
 
-  if (!$context['sandbox']['current_field']) {
+    $context['sandbox']['target_id_property'] = $context['sandbox']['entities'][$entity_target_type]['entity keys']['id'];
+    $context['sandbox']['source_id_property'] = $context['sandbox']['entities'][$entity_source_type]['entity keys']['id'];
+
+    $context['sandbox']['progress'] = 0;
+  }
+  $context['finished'] = 1 - ($context['sandbox']['progress'] / ($context['sandbox']['entity_types_total'] * $context['sandbox']['fields_total']));
+
+  if (empty($context['sandbox']['current_entity'])) {
     $context['finished'] = 1;
   }
   else {
-    foreach ($context['sandbox']['entities'] as $entity => $entity_info) {
-      $target_id_property = _simpleentitymerge_entity_id($entity_target_type);
-      $source_id_property = _simpleentitymerge_entity_id($entity_source_type);
-      if ($target_id_property && $source_id_property) {
-        $query = new EntityFieldQuery();
-        $query->entityCondition('entity_type', $entity)
-          ->fieldCondition($context['sandbox']['current_field']['field_name'], 'target_id', $entity_source->{$source_id_property});
-        $result = $query->execute();
-        if (isset($result[$entity]) && count($result[$entity]) > 0) {
-          $ids = array_keys($result[$entity]);
-          $items = entity_load($entity, $ids);
-          foreach ($items as $item) {
-            if (isset($item->{$context['sandbox']['current_field']['field_name']})) {
-              foreach ($item->{$context['sandbox']['current_field']['field_name']} as $language => $value) {
-                foreach ($value as $delta => $targets) {
-                  if (isset($targets['target_id']) && $targets['target_id'] === $entity_source->{$source_id_property}) {
-                    $item->{$context['sandbox']['current_field']['field_name']}[$language][$delta]['target_id'] = $entity_target->{$target_id_property};
-                  }
-                }
+    $query = new EntityFieldQuery();
+    $query->entityCondition('entity_type', $context['sandbox']['current_entity'])
+      ->fieldCondition($context['sandbox']['current_field'], 'target_id', $entity_source->{$context['sandbox']['source_id_property']})
+      ->range(0, 5);
+    $result = $query->execute();
+    if (isset($result[$context['sandbox']['current_entity']]) && count($result[$context['sandbox']['current_entity']]) > 0) {
+      $ids = array_keys($result[$context['sandbox']['current_entity']]);
+      $items = entity_load($context['sandbox']['current_entity'], $ids);
+      foreach ($items as $item) {
+        if (isset($item->{$context['sandbox']['current_field']})) {
+          foreach ($item->{$context['sandbox']['current_field']} as $language => $value) {
+            foreach ($value as $delta => $targets) {
+              if (isset($targets['target_id']) && $targets['target_id'] === $entity_source->{$context['sandbox']['source_id_property']}) {
+                $item->{$context['sandbox']['current_field']}[$language][$delta]['target_id'] = $entity_target->{$context['sandbox']['target_id_property']};
               }
             }
+          }
+        }
+        try {
+          entity_save($context['sandbox']['current_entity'], $item);
+        }
+        catch (Exception $e) {}
+      }
+    }
+    else {
+      // Move on to the next field.
+      $context['sandbox']['current_field'] = array_shift($context['sandbox']['field_names']);
+      // If all fields have been checked, move on to the next entity and reset
+      // the field array.
+      if (empty($context['sandbox']['current_field'])) {
+        $context['sandbox']['progress']++;
+        $context['sandbox']['current_entity'] = array_shift($context['sandbox']['entity_types']);
+        $context['sandbox']['field_names'] = array_keys($context['sandbox']['fields']);
+        $context['sandbox']['current_field'] = array_shift($context['sandbox']['field_names']);
+      }
+    }
+  }
+}
+
+/**
+ * Switch the author on all entities from one to another.
+ *
+ * @param stdClass $entity_source
+ * @param string $entity_source_type
+ * @param stdClass $entity_target
+ * @param string $entity_target_type
+ * @param array $context
+ *   A BatchAPI compatible array for storing information on the current state of processing.
+ */
+function _simpleentitymerge_update_author($entity_source, $entity_source_type, $entity_target, $entity_target_type, &$context) {
+  if ($entity_source_type === 'user' && $entity_target_type === 'user') {
+    if (empty($context['sandbox']['entity_info'])) {
+      $context['sandbox']['entity_info'] = entity_get_info();
+    }
+    if (empty($context['sandbox']['update_author'])) {
+      $context['sandbox']['update_author']['uid'] = $context['sandbox']['entity_info']['user']['entity keys']['id'];
+      $context['sandbox']['update_author']['entity_types'] = array_keys($context['sandbox']['entity_info']);
+      if (($key = array_search('user', $context['sandbox']['update_author']['entity_types'])) !== false) {
+        unset($context['sandbox']['update_author']['entity_types'][$key]);
+      }
+      $context['sandbox']['update_author']['entity_types_total'] = count($context['sandbox']['update_author']['entity_types']);
+      $context['sandbox']['update_author']['current_entity'] = array_shift($context['sandbox']['update_author']['entity_types']);
+    }
+
+    $context['finished'] = 1 - (count($context['sandbox']['update_author']['entity_types']) / $context['sandbox']['update_author']['entity_types_total']);
+
+    if (!empty($context['sandbox']['update_author']['current_entity']) && !empty($context['sandbox']['update_author']['uid'])) {
+      $entity = $context['sandbox']['update_author']['current_entity'];
+      $query = new EntityFieldQuery();
+      $query->entityCondition('entity_type', $entity)
+        ->propertyCondition($context['sandbox']['update_author']['uid'], $entity_source->{$context['sandbox']['update_author']['uid']})
+        ->range(0, 5);
+      $result = $query->execute();
+      if (isset($result[$entity]) && count($result[$entity]) > 0) {
+        $ids = array_keys($result[$entity]);
+        $items = entity_load($entity, $ids);
+        foreach ($items as $item) {
+          if (isset($item->uid)) {
+            $item->uid = $entity_target->uid;
             try {
               entity_save($entity, $item);
             }
@@ -350,38 +397,47 @@ function _simpleentitymerge_update_references_field($entity_source, $entity_sour
           }
         }
       }
-    }
-    $context['sandbox']['current_field'] = array_shift($context['sandbox']['fields']);
-  }
-}
-
-function _simpleentitymerge_update_author($entity_source, $entity_source_type, $entity_target, $entity_target_type, &$context) {
-  if ($entity_source_type === 'user' && $entity_target_type === 'user') {
-    if (empty($context['sandbox'])) {
-      $context['sandbox']['entities'] = entity_get_info();
-      unset($context['sandbox']['entities']['user']);
-    }
-    foreach ($context['sandbox']['entities'] as $entity => $entity_info) {
-      $query = new EntityFieldQuery();
-      $query->entityCondition('entity_type', $entity)
-        ->propertyCondition('uid', $entity_source->uid);
-      $result = $query->execute();
-      $result = $query->execute();
-      if (isset($result[$entity]) && count($result[$entity]) > 0) {
-        $ids = array_keys($result[$entity]);
-        $items = entity_load($entity, $ids);
-        foreach ($items as $item) {
-          $item->uid = $entity_target->uid;
-          try {
-            entity_save($entity, $item);
-          }
-          catch (Exception $e) {}
-        }
+      else {
+        $context['sandbox']['update_author']['current_entity'] = array_shift($context['sandbox']['update_author']['entity_types']);
       }
     }
-    $context['finished'] = 1;
+    else {
+      $context['finished'] = 1;
+    }
   }
   else {
     $context['finished'] = 1;
   }
+}
+
+/**
+ * Delete an entity.
+ *
+ * @param string $source_type
+ * @param int $source_id
+ * @param array $context
+ *   A BatchAPI compatible array for storing information on the current state of processing.
+ */
+function _simpleentitymerge_delete_entity($source_type, $source_id, &$context) {
+  if (!isset($context['message'])) {
+    $context['message'] = '';
+  }
+  try {
+    entity_delete($source_type, $source_id);
+    $context['message'] .= '<br />' . t('Source entity deleted');
+    $context['finished'] = 1;
+  }
+  catch (Exception $e) {
+    $context['message'] .= '<br />' . t('Unable to delete source entity.');
+  }
+}
+
+/**
+ * Display messages once the batch operation has completed.
+ *
+ * @param $success
+ * @param $results
+ * @param $operations
+ */
+function _simpleentitymerge_update_references_field_finished($success, $results, $operations) {
 }

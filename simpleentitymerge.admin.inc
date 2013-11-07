@@ -107,7 +107,6 @@ function simpleentitymerge_admin_form($form, &$form_state) {
                   }
                 }
               }
-
               if (is_array($target_items)) {
                 foreach ($target_items as $target_item) {
                   $view = field_view_value($target['entity_type'], $target_entity[$target['entity_id']], $field_name, $target_item);
@@ -138,8 +137,41 @@ function simpleentitymerge_admin_form($form, &$form_state) {
               $form['fields'][$field_name]['doit'] = array(
                 '#type' => 'checkbox',
                 '#title' => 'Overwrite this field',
-                '#default_value' => (!empty($source_view)) ? 1 : 0,
+                '#default_value' => 0,
               );
+            }
+          }
+
+          // Show field properties.
+          if ($source['entity_type'] === $target['entity_type']) {
+            $form['properties'] = array(
+              '#type' => 'fieldset',
+              '#title' => 'Properties',
+              '#collapsible' => TRUE,
+              '#collapsed' => TRUE,
+              '#tree' => TRUE,
+            );
+
+            $entity_properties = entity_get_property_info();
+            $allowed_properties = _simpleentitymerge_allowed_entity_properties();
+            if (isset($allowed_properties[$source['entity_type']])) {
+              foreach ($allowed_properties[$source['entity_type']] as $property) {
+                if (in_array($property, array_keys($entity_properties[$source['entity_type']]['properties']))) {
+                  $row = array(array(isset($source_entity[$source['entity_id']]->{$property}) ? var_export($source_entity[$source['entity_id']]->{$property}, TRUE) : '', isset($target_entity[$target['entity_id']]->{$property}) ? var_export($target_entity[$target['entity_id']]->{$property}, TRUE) : ''));
+
+                  $form['properties'][$property]['changes'] = array(
+                    '#type' => 'item',
+                    '#title' => $property,
+                    '#markup' => theme('table', array('rows' => $row)),
+                  );
+
+                  $form['properties'][$property]['doit'] = array(
+                    '#type' => 'checkbox',
+                    '#title' => 'Overwrite this property',
+                    '#default_value' => 0,
+                  );
+                }
+              }
             }
           }
 
@@ -192,6 +224,7 @@ function simpleentitymerge_admin_form_submit($form, &$form_state) {
     $target_type = !empty($form_state['values']['target_type']) ? $form_state['values']['target_type'] : false;
     $target_id = !empty($form_state['values']['target_id']) ? $form_state['values']['target_id'] : false;
     $fields = !empty($form_state['values']['fields']) ? $form_state['values']['fields'] : array();
+    $properties = !empty($form_state['values']['properties']) ? $form_state['values']['properties'] : array();
 
     if ($source_type && $source_id && $target_type && $target_id) {
       $source_entity = entity_load($source_type, array($source_id));
@@ -206,41 +239,50 @@ function simpleentitymerge_admin_form_submit($form, &$form_state) {
         }
         $fields = array_keys($fields);
 
-        // Merge the fields.
-        _simpleentitymerge_merge_entities($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type, $fields);
-        $target_uri = entity_uri($target_type, $target_entity[$target_id]);
-        $text = !empty($target_uri['path']) && !empty($target_uri['options']) ? l(t('Complete'), $target_uri['path'], $target_uri['options']) : t('Completed item');
-        $form['finished']['#markup'] = $text;
-
-        $batch = array(
-          'title' => t('Updating Entities'),
-          'operations' => array(),
-          'finished' => '_simpleentitymerge_update_references_field_finished',
-          'file' => drupal_get_path('module', 'simpleentitymerge') . '/simpleentitymerge.admin.inc',
-        );
-
-        // Update entity reference fields.
-        if ($form_state['values']['update_references'] === 1) {
-          $batch['operations'][] = array('_simpleentitymerge_update_references_field', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
+        // Filter out which properties the user selected to overwrite.
+        foreach ($properties as $property_name => $info) {
+          if ($info['doit'] === 0) {
+            unset($properties[$property_name]);
+          }
         }
+        $properties = array_keys($properties);
 
-        // Update authoring information when merging together two users.
-        if (isset($form_state['values']['update_author']) && $form_state['values']['update_author'] === 1) {
-          $batch['operations'][] = array('_simpleentitymerge_update_author', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
-        }
+        // Merge the properties and fields.
+        $merge_result = _simpleentitymerge_merge_entities($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type, $fields, $properties);
+        if ($merge_result !== FALSE) {
+          $target_uri = entity_uri($target_type, $target_entity[$target_id]);
+          $text = !empty($target_uri['path']) && !empty($target_uri['options']) ? l(t('Complete'), $target_uri['path'], $target_uri['options']) : t('Completed item');
+          drupal_set_message($text);
 
-        // Delete the source entity.
-        if ($form_state['values']['delete_source'] === 1) {
-          $batch['operations'][] = array('_simpleentitymerge_delete_entity', array($source_type, $source_id));
-        }
+          $batch = array(
+            'title' => t('Updating Entities'),
+            'operations' => array(),
+            'finished' => '_simpleentitymerge_batch_finished',
+            'file' => drupal_get_path('module', 'simpleentitymerge') . '/simpleentitymerge.admin.inc',
+          );
 
-        if (!empty($batch['operations'])) {
-          batch_set($batch);
+          // Update entity reference fields.
+          if ($form_state['values']['update_references'] === 1) {
+            $batch['operations'][] = array('_simpleentitymerge_update_references_field', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
+          }
+
+          // Update authoring information when merging together two users.
+          if (isset($form_state['values']['update_author']) && $form_state['values']['update_author'] === 1) {
+            $batch['operations'][] = array('_simpleentitymerge_update_author', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
+          }
+
+          // Delete the source entity.
+          if ($form_state['values']['delete_source'] === 1) {
+            $batch['operations'][] = array('_simpleentitymerge_delete_entity', array($source_type, $source_id));
+          }
+
+          if (!empty($batch['operations'])) {
+            batch_set($batch);
+          }
         }
       }
     }
     $form_state['stage'] = 'finished';
-    drupal_set_message(t('Completed'));
   }
   else {
     $form_state['rebuild'] = TRUE;
@@ -256,17 +298,32 @@ function simpleentitymerge_admin_form_submit($form, &$form_state) {
  * @param string $entity_target_type
  * @param array $fields
  */
-function _simpleentitymerge_merge_entities($entity_source, $entity_source_type, $entity_target, $entity_target_type, $fields) {
+function _simpleentitymerge_merge_entities($entity_source, $entity_source_type, $entity_target, $entity_target_type, $fields = array(), $properties = array()) {
+  // Merge fields.
   $field_info_instances = field_info_instances();
   foreach ($fields as $field) {
     if (isset($field_info_instances[$entity_source_type][$entity_source->type][$field]) && isset($field_info_instances[$entity_target_type][$entity_target->type][$field])) {
-      $entity_target->$field = $entity_source->$field;
+      $entity_target->{$field} = $entity_source->{$field};
     }
   }
+
+  // Merge properties.
+  if ($entity_source_type === $entity_target_type) {
+    $entity_property_info = entity_get_property_info();
+    $allowed_properties = _simpleentitymerge_allowed_entity_properties();
+    foreach ($properties as $property) {
+      if (in_array($property, $allowed_properties[$entity_source_type]) && in_array($property, array_keys($entity_property_info[$entity_source_type]['properties']))) {
+        $entity_target->{$property} = $entity_source->{$property};
+      }
+    }
+  }
+
+  // Save the entity.
   try {
     return entity_save($entity_target_type, $entity_target);
   }
   catch (Exception $e) {
+    drupal_set_message($e->errorInfo[2], 'error');
     return FALSE;
   }
 }
@@ -433,11 +490,48 @@ function _simpleentitymerge_delete_entity($source_type, $source_id, &$context) {
 }
 
 /**
+ * The list of properties for entities that's allowable to merge.
+ */
+function _simpleentitymerge_allowed_entity_properties() {
+  $list = array(
+    'node' => array(
+      'uid',
+      'title',
+      'status',
+      'comment',
+      'promote',
+      'sticky',
+      'language',
+      'created',
+    ),
+    'user' => array(
+      'name',
+      'pass',
+      'mail',
+      'theme',
+      'signature',
+      'signature_format',
+      'created',
+      'status',
+      'timezone',
+      'language',
+      'picture',
+      'init',
+      'data',
+      'roles',
+    ),
+  );
+  drupal_alter('simpleentitymerge_entity_properties', $list);
+  return $list;
+}
+
+/**
  * Display messages once the batch operation has completed.
  *
  * @param $success
  * @param $results
  * @param $operations
  */
-function _simpleentitymerge_update_references_field_finished($success, $results, $operations) {
+function _simpleentitymerge_batch_finished($success, $results, $operations) {
+  drupal_set_message(t('Completed'));
 }

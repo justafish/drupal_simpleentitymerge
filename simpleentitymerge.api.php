@@ -1,13 +1,16 @@
 <?php
 
 /**
- * Get the unique ID name for an entity.
+ * Alter the list of entity properties that are available for merging.
  *
- * @return array
+ * @param array $list
+ *   A list of allowable entity properties to be merged.
+ *   @see _simpleentitymerge_allowed_entity_properties().
  */
-function hook_simpleentitymerge_ids() {
-  return array(
-    'bean' => 'bid',
-    'user' => 'uid',
+function hook_simpleentitymerge_entity_properties_alter(&$list) {
+  unset($list['node']['title']);
+  $list['video'] = array(
+    'title',
+    'created',
   );
 }

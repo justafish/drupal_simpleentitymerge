@@ -387,9 +387,16 @@ function _simpleentitymerge_update_references_field($entity_source, $entity_sour
           }
         }
         try {
-          entity_save($context['sandbox']['current_entity'], $item);
+          $saved = entity_save($context['sandbox']['current_entity'], $item);
+          if ($saved === FALSE) {
+            $id = entity_extract_ids($context['sandbox']['current_entity'], $item);
+            $sandbox['results'][] = $context['sandbox']['current_entity'] . ' - ' . $id[0];
+          }
         }
-        catch (Exception $e) {}
+        catch (Exception $e) {
+          $id = entity_extract_ids($context['sandbox']['current_entity'], $item);
+          $sandbox['results'][] = $context['sandbox']['current_entity'] . ' - ' . $id[0];
+        }
       }
     }
     else {
@@ -448,9 +455,16 @@ function _simpleentitymerge_update_author($entity_source, $entity_source_type, $
           if (isset($item->uid)) {
             $item->uid = $entity_target->uid;
             try {
-              entity_save($entity, $item);
+              $saved = entity_save($entity, $item);
+              if ($saved === FALSE) {
+                $id = entity_extract_ids($entity, $item);
+                $sandbox['results'][] = $entity . ' - ' . $id[0];
+              }
             }
-            catch (Exception $e) {}
+            catch (Exception $e) {
+              $id = entity_extract_ids($entity, $item);
+              $sandbox['results'][] = $entity . ' - ' . $id[0];
+            }
           }
         }
       }
@@ -533,5 +547,19 @@ function _simpleentitymerge_allowed_entity_properties() {
  * @param $operations
  */
 function _simpleentitymerge_batch_finished($success, $results, $operations) {
-  drupal_set_message(t('Completed'));
+  if ($success) {
+    if (count($results) > 0) {
+      $message = count($results) . ' ' . t('were unable to be processed.');
+      $message .= theme('item_list', $results);
+    }
+    else {
+      $message = t('Completed');
+    }
+    drupal_set_message($message);
+  }
+  else {
+    $error_operation = reset($operations);
+    $message = t('An error occurred while processing %error_operation with arguments: @arguments', array('%error_operation' => $error_operation[0], '@arguments' => print_r($error_operation[1], TRUE)));
+    drupal_set_message($message, 'error');
+  }
 }

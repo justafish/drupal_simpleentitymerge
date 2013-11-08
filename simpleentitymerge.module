@@ -28,3 +28,12 @@ function simpleentitymerge_permission() {
     ),
   );
 }
+
+/**
+ * Implements hook_theme().
+ */
+function simpleentitymerge_theme() {
+  return array('simpleentitymerge_table' => array(
+    'render element' => 'form',
+  ));
+}

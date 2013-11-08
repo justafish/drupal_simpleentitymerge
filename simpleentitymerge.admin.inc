@@ -92,63 +92,39 @@ function simpleentitymerge_admin_form($form, &$form_state) {
           $field_info_instances = field_info_instances();
           $bundle_fields = $field_info_instances[$target['entity_type']][$target['entity_bundle']];
           foreach ($bundle_fields as $field_name => $field) {
+
+            $form['fields'][$field_name]['#label'] = $field['label'];
+
             if (isset($field_info_instances[$target['entity_type']][$target['entity_bundle']][$field_name]) && isset($field_info_instances[$source['entity_type']][$source['entity_bundle']][$field_name])) {
               $source_items = field_get_items($source['entity_type'], $source_entity[$source['entity_id']], $field_name);
               $target_items = field_get_items($target['entity_type'], $target_entity[$target['entity_id']], $field_name);
-              $source_view = array();
-              $target_view = array();
 
-              // Render the field items so they can be displayed to the user.
               if (is_array($source_items)) {
                 foreach ($source_items as $source_item) {
                   $view = field_view_value($source['entity_type'], $source_entity[$source['entity_id']], $field_name, $source_item);
-                  if (isset($view['#markup'])) {
-                    $source_view[] = array(array('data' => $view['#markup']));
-                  }
+                  $form['fields'][$field_name]['#source_value'] = isset($view['#markup']) ? $view['#markup'] : '';
                 }
               }
               if (is_array($target_items)) {
                 foreach ($target_items as $target_item) {
                   $view = field_view_value($target['entity_type'], $target_entity[$target['entity_id']], $field_name, $target_item);
-                  if (isset($view['#markup'])) {
-                    $target_view[] = array(array('data' => $view['#markup']));
-                  }
+                  $form['fields'][$field_name]['#target_value'] = isset($view['#markup']) ? $view['#markup'] : '';
                 }
               }
 
-              $form['fields'][$field_name] = array(
-                '#type' => 'fieldset',
-                '#title' => $field['label'],
-                '#collapsible' => TRUE,
-                '#collapsed' => FALSE,
-              );
-
-              $form['fields'][$field_name]['changes'] = array(
-                '#type' => 'item',
-                '#title' => $field_name,
-                '#markup' => theme('table', array('rows' => $source_view, 'attributes' => array('class' => 'simpleentitymerge'))) . theme('table', array('rows' => $target_view, 'attributes' => array('class' => 'simpleentitymerge'))),
-                '#attached' => array(
-                  'css' => array(
-                    drupal_get_path('module', 'simpleentitymerge') . "/simpleentitymerge.css",
-                  ),
-                ),
-              );
-
+              // Render the field items so they can be displayed to the user.
               $form['fields'][$field_name]['doit'] = array(
                 '#type' => 'checkbox',
-                '#title' => 'Overwrite this field',
                 '#default_value' => 0,
               );
+
             }
           }
 
           // Show field properties.
           if ($source['entity_type'] === $target['entity_type']) {
+
             $form['properties'] = array(
-              '#type' => 'fieldset',
-              '#title' => 'Properties',
-              '#collapsible' => TRUE,
-              '#collapsed' => TRUE,
               '#tree' => TRUE,
             );
 
@@ -157,17 +133,11 @@ function simpleentitymerge_admin_form($form, &$form_state) {
             if (isset($allowed_properties[$source['entity_type']])) {
               foreach ($allowed_properties[$source['entity_type']] as $property) {
                 if (in_array($property, array_keys($entity_properties[$source['entity_type']]['properties']))) {
-                  $row = array(array(isset($source_entity[$source['entity_id']]->{$property}) ? var_export($source_entity[$source['entity_id']]->{$property}, TRUE) : '', isset($target_entity[$target['entity_id']]->{$property}) ? var_export($target_entity[$target['entity_id']]->{$property}, TRUE) : ''));
-
-                  $form['properties'][$property]['changes'] = array(
-                    '#type' => 'item',
-                    '#title' => $property,
-                    '#markup' => theme('table', array('rows' => $row)),
-                  );
+                  $form['properties'][$property]['#source_value'] = isset($source_entity[$source['entity_id']]->{$property}) ? $source_entity[$source['entity_id']]->{$property} : '';
+                  $form['properties'][$property]['#target_value'] = isset($target_entity[$target['entity_id']]->{$property}) ? $target_entity[$target['entity_id']]->{$property} : '';
 
                   $form['properties'][$property]['doit'] = array(
                     '#type' => 'checkbox',
-                    '#title' => 'Overwrite this property',
                     '#default_value' => 0,
                   );
                 }
@@ -194,7 +164,11 @@ function simpleentitymerge_admin_form($form, &$form_state) {
             '#title' => 'Delete the source item',
             '#default_value' => 1,
           );
-
+          $form['#theme'] = 'simpleentitymerge_table';
+          $form['#attached'] = array(
+            'css' => array(
+              drupal_get_path('module', 'simpleentitymerge') . "/simpleentitymerge.css",
+          ));
           $form_state['stage'] = 'overwrite fields';
         }
       }
@@ -209,6 +183,37 @@ function simpleentitymerge_admin_form($form, &$form_state) {
   }
 
   return $form;
+}
+
+/**
+ * Theme function to display the field values in a table and let the user select which to keep.
+ */
+function theme_simpleentitymerge_table($variables) {
+  $form = $variables['form'];
+  $header = array(t('Field Name'), t('Source Value'), t('Target Value'), t('Use Source Value?'));
+  $rows = array();
+  foreach (element_children($form['fields']) as $field_name) {
+    $rows[] = array(
+      0 => t('@label (@name)', array('@name' => $field_name, '@label' => $form['fields'][$field_name]['#label'])),
+      1 => (!empty($form['fields'][$field_name]['#source_value']) ? $form['fields'][$field_name]['#source_value'] : ''),
+      2 => (!empty($form['fields'][$field_name]['#target_value']) ? $form['fields'][$field_name]['#target_value'] : ''),
+      3 => drupal_render($form['fields'][$field_name]['doit']),
+    );
+  }
+  if (array_key_exists('properties', $form)) {
+    foreach (element_children($form['properties']) as $field_name) {
+      $rows[] = array(
+        0 => $field_name,
+        1 => (!empty($form['properties'][$field_name]['#source_value']) ? $form['properties'][$field_name]['#source_value'] : ''),
+        2 => (!empty($form['properties'][$field_name]['#target_value']) ? $form['properties'][$field_name]['#target_value'] : ''),
+        3 => drupal_render($form['properties'][$field_name]['doit']),
+      );
+    }
+  }
+  $output = theme('table', array('header' => $header, 'rows' => $rows));
+  $output .= drupal_render_children($form);
+
+  return $output;
 }
 
 /**

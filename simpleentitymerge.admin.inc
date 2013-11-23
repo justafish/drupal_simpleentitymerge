@@ -192,27 +192,36 @@ function theme_simpleentitymerge_table($variables) {
   $form = $variables['form'];
   $header = array(t('Field Name'), t('Source Value'), t('Target Value'), t('Use Source Value?'));
   $rows = array();
+  $output = '';
   foreach (element_children($form['fields']) as $field_name) {
     $rows[] = array(
       0 => t('@label (@name)', array('@name' => $field_name, '@label' => $form['fields'][$field_name]['#label'])),
-      1 => (!empty($form['fields'][$field_name]['#source_value']) ? $form['fields'][$field_name]['#source_value'] : ''),
-      2 => (!empty($form['fields'][$field_name]['#target_value']) ? $form['fields'][$field_name]['#target_value'] : ''),
+      1 => (!empty($form['fields'][$field_name]['#source_value']) ? var_export($form['fields'][$field_name]['#source_value'], TRUE) : ''),
+      2 => (!empty($form['fields'][$field_name]['#target_value']) ? var_export($form['fields'][$field_name]['#target_value'], TRUE) : ''),
       3 => drupal_render($form['fields'][$field_name]['doit']),
     );
   }
+  if (count($rows > 0)) {
+    $output .= theme('table', array('header' => $header, 'rows' => $rows));
+  }
+
+  $header[0] = t('Property');
+  $rows = array();
   if (array_key_exists('properties', $form)) {
     foreach (element_children($form['properties']) as $field_name) {
       $rows[] = array(
         0 => $field_name,
-        1 => (!empty($form['properties'][$field_name]['#source_value']) ? $form['properties'][$field_name]['#source_value'] : ''),
-        2 => (!empty($form['properties'][$field_name]['#target_value']) ? $form['properties'][$field_name]['#target_value'] : ''),
+        1 => (!empty($form['properties'][$field_name]['#source_value']) ? var_export($form['properties'][$field_name]['#source_value'], TRUE) : ''),
+        2 => (!empty($form['properties'][$field_name]['#target_value']) ? var_export($form['properties'][$field_name]['#target_value'], TRUE) : ''),
         3 => drupal_render($form['properties'][$field_name]['doit']),
       );
     }
   }
-  $output = theme('table', array('header' => $header, 'rows' => $rows));
-  $output .= drupal_render_children($form);
+  if (count($rows) > 0) {
+    $output .= theme('table', array('header' => $header, 'rows' => $rows));
+  }
 
+  $output .= drupal_render_children($form);
   return $output;
 }
 

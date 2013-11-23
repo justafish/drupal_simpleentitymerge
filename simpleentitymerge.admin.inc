@@ -145,15 +145,42 @@ function simpleentitymerge_admin_form($form, &$form_state) {
             }
           }
 
+          // Show tables with foreign keys.
+          if ($source['entity_type'] === $target['entity_type']) {
+            $schema = drupal_get_complete_schema();
+            $entity_info = entity_get_info();
+            $base_table = $entity_info[$source['entity_type']]['base table'];
+            $id = $entity_info[$source['entity_type']]['entity keys']['id'];
+            $form['foreignkeys'] = array(
+              '#tree' => TRUE,
+            );
+            foreach ($schema as $table => $info) {
+              if (isset($info['foreign keys'])) {
+                foreach ($info['foreign keys'] as $foreign_key => $foreign_key_info) {
+                  if (isset($foreign_key_info['table']) && $foreign_key_info['table'] === $base_table && isset($foreign_key_info['columns']) && count($foreign_key_info['columns']) > 0) {
+                    foreach ($foreign_key_info['columns'] as $column => $reference) {
+                      if ($reference === $id) {
+                        $form['foreignkeys'][$table]['#columns'][] = $column;
+
+                        $form['foreignkeys'][$table]['doit'] = array(
+                          '#type' => 'checkbox',
+                          '#default_value' => 0,
+                        );
+
+                        if (in_array($id, $info['primary key'])) {
+                          $form['foreignkeys'][$table]['doit']['#disabled'] = TRUE;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+
           $form['update_references'] = array(
             '#type' => 'checkbox',
             '#title' => 'Replace entity references (Resaves entities fully)',
-            '#default_value' => 1,
-          );
-
-          $form['update_miscellaneous_references'] = array(
-            '#type' => 'checkbox',
-            '#title' => 'Attempt to update usages of this entity\'s ID in tables that declare usage in hook_schema',
             '#default_value' => 1,
           );
 
@@ -188,24 +215,27 @@ function simpleentitymerge_admin_form($form, &$form_state) {
  */
 function theme_simpleentitymerge_table($variables) {
   $form = $variables['form'];
-  $header = array(t('Field Name'), t('Source Value'), t('Target Value'), t('Use Source Value?'));
-  $rows = array();
   $output = '';
-  foreach (element_children($form['fields']) as $field_name) {
-    $rows[] = array(
-      0 => t('@label (@name)', array('@name' => $field_name, '@label' => $form['fields'][$field_name]['#label'])),
-      1 => (!empty($form['fields'][$field_name]['#source_value']) ? var_export($form['fields'][$field_name]['#source_value'], TRUE) : ''),
-      2 => (!empty($form['fields'][$field_name]['#target_value']) ? var_export($form['fields'][$field_name]['#target_value'], TRUE) : ''),
-      3 => drupal_render($form['fields'][$field_name]['doit']),
-    );
-  }
-  if (count($rows > 0)) {
-    $output .= theme('table', array('header' => $header, 'rows' => $rows));
+
+  if (array_key_exists('fields', $form)) {
+    $header = array(t('Field Name'), t('Source Value'), t('Target Value'), t('Use Source Value?'));
+    $rows = array();
+    foreach (element_children($form['fields']) as $field_name) {
+      $rows[] = array(
+        0 => t('@label (@name)', array('@name' => $field_name, '@label' => $form['fields'][$field_name]['#label'])),
+        1 => (!empty($form['fields'][$field_name]['#source_value']) ? var_export($form['fields'][$field_name]['#source_value'], TRUE) : ''),
+        2 => (!empty($form['fields'][$field_name]['#target_value']) ? var_export($form['fields'][$field_name]['#target_value'], TRUE) : ''),
+        3 => drupal_render($form['fields'][$field_name]['doit']),
+      );
+    }
+    if (count($rows > 0)) {
+      $output .= theme('table', array('header' => $header, 'rows' => $rows));
+    }
   }
 
-  $header[0] = t('Property');
-  $rows = array();
   if (array_key_exists('properties', $form)) {
+    $header = array(t('Property'), t('Source Value'), t('Target Value'), t('Use Source Value?'));
+    $rows = array();
     foreach (element_children($form['properties']) as $field_name) {
       $rows[] = array(
         0 => $field_name,
@@ -214,9 +244,27 @@ function theme_simpleentitymerge_table($variables) {
         3 => drupal_render($form['properties'][$field_name]['doit']),
       );
     }
+    if (count($rows) > 0) {
+      $output .= theme('table', array('header' => $header, 'rows' => $rows));
+    }
   }
-  if (count($rows) > 0) {
-    $output .= theme('table', array('header' => $header, 'rows' => $rows));
+
+  if (array_key_exists('foreignkeys', $form)) {
+    $header = array(t('Table'), t('Column'), t('Update?'));
+    $rows = array();
+    foreach (element_children($form['foreignkeys']) as $table) {
+      if (!empty($form['foreignkeys'][$table]['#columns'])) {
+        $columns = implode(', ', $form['foreignkeys'][$table]['#columns']);
+        $rows[] = array(
+          0 => $table,
+          1 => (isset($form['foreignkeys'][$table]['doit']['#disabled']) && $form['foreignkeys'][$table]['doit']['#disabled'] === TRUE) ? $columns . ' (contains primary key)' : $columns,
+          2 => drupal_render($form['foreignkeys'][$table]['doit']),
+        );
+      }
+    }
+    if (count($rows) > 0) {
+      $output .= theme('table', array('header' => $header, 'rows' => $rows));
+    }
   }
 
   $output .= drupal_render_children($form);
@@ -237,6 +285,7 @@ function simpleentitymerge_admin_form_submit($form, &$form_state) {
     $target_id = !empty($form_state['values']['target_id']) ? $form_state['values']['target_id'] : false;
     $fields = !empty($form_state['values']['fields']) ? $form_state['values']['fields'] : array();
     $properties = !empty($form_state['values']['properties']) ? $form_state['values']['properties'] : array();
+    $foreign_keys = !empty($form_state['values']['foreignkeys']) ? $form_state['values']['foreignkeys'] : array();
 
     if ($source_type && $source_id && $target_type && $target_id) {
       $source_entity = entity_load($source_type, array($source_id));
@@ -259,6 +308,13 @@ function simpleentitymerge_admin_form_submit($form, &$form_state) {
         }
         $properties = array_keys($properties);
 
+        // Filter out which foreign keys the user selected to overwrite.
+        foreach ($foreign_keys as $foreign_key => $info) {
+          if ($info['doit'] === 0) {
+            unset($foreign_keys[$foreign_key]);
+          }
+        }
+
         // Merge the properties and fields.
         $merge_result = _simpleentitymerge_merge_entities($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type, $fields, $properties);
         if ($merge_result !== FALSE) {
@@ -279,8 +335,8 @@ function simpleentitymerge_admin_form_submit($form, &$form_state) {
           }
 
           // Update miscellaneous references.
-          if ($form_state['values']['update_miscellaneous_references'] === 1) {
-            $batch['operations'][] = array('_simpleentitymerge_update_tables', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
+          if (count($foreign_keys) > 0) {
+            $batch['operations'][] = array('_simpleentitymerge_update_tables', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type, $foreign_keys));
           }
 
           // Delete the source entity.
@@ -434,10 +490,11 @@ function _simpleentitymerge_update_references_field($entity_source, $entity_sour
  * @param string $entity_source_type
  * @param stdClass $entity_target
  * @param string $entity_target_type
+ * @param array $selected_tables
  * @param array $context
  *   A BatchAPI compatible array for storing information on the current state of processing.
  */
-function _simpleentitymerge_update_tables($entity_source, $entity_source_type, $entity_target, $entity_target_type, &$context) {
+function _simpleentitymerge_update_tables($entity_source, $entity_source_type, $entity_target, $entity_target_type, $selected_tables ,&$context) {
   if (empty($context['sandbox'])) {
     $context['results']['tables'] = array();
     $context['results']['tables_not'] = array();
@@ -458,16 +515,18 @@ function _simpleentitymerge_update_tables($entity_source, $entity_source_type, $
               foreach ($foreign_key_info['columns'] as $column => $reference) {
                 if ($reference === $id) {
                   if (!in_array($id, $info['primary key'])) {
-                    $num_updated = db_update($table)
-                      ->fields(array(
-                          $column => $target_id[0],
-                        ))
-                      ->condition($column, $source_id[0])
-                      ->execute();
-                    $context['results']['tables'][] = $num_updated . ' ' . $column . ' columns updated in ' . $table;
+                    if (isset($selected_tables[$table]['doit']) && $selected_tables[$table]['doit'] === 1) {
+                      $num_updated = db_update($table)
+                        ->fields(array(
+                            $column => $target_id[0],
+                          ))
+                        ->condition($column, $source_id[0])
+                        ->execute();
+                      $context['results']['tables'][] = $num_updated . ' ' . $column . ' columns updated in ' . $table;
+                    }
                   }
                   else {
-                    $context['results']['tables_not'][] = 'Did not update ' . $column . ' in ' . $table . ' because this is a primary key. Please update manually if necessary.';
+                    $context['results']['tables_not'][] = 'Check ' . $column . ' in ' . $table . ' because this is a primary key. Please update manually if necessary.';
                   }
                 }
               }
@@ -555,13 +614,13 @@ function _simpleentitymerge_batch_finished($success, $results, $operations) {
   $message = '';
   if (isset($results['references']) && count($results['references']) > 0) {
     $message = count($results) . ' ' . t('were unable to be processed.');
-    $message .= theme('item_list', array('items' => $results['references']));
+    $message .= '<br />' . theme('item_list', array('items' => $results['references']));
   }
   if (isset($results['tables_not']) && count($results['tables_not']) > 0) {
-    $message .= theme('item_list', array('items' => $results['tables_not']));
+    $message .= '<br />' . theme('item_list', array('items' => $results['tables_not']));
   }
   if (isset($results['tables']) && count($results['tables']) > 0) {
-    $message .= theme('item_list', array('items' => $results['tables']));
+    $message .= '<br />' . theme('item_list', array('items' => $results['tables']));
   }
   drupal_set_message($message);
 }

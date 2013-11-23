@@ -496,39 +496,44 @@ function _simpleentitymerge_update_references_field($entity_source, $entity_sour
  */
 function _simpleentitymerge_update_tables($entity_source, $entity_source_type, $entity_target, $entity_target_type, $selected_tables ,&$context) {
   if (empty($context['sandbox'])) {
+    $context['sandbox']['schema'] = drupal_get_complete_schema();
+    $context['sandbox']['schema_total'] = count($context['sandbox']['schema']);
+    $context['sandbox']['entity_info'] = entity_get_info();
+    $context['sandbox']['base_table'] = $context['sandbox']['entity_info'][$entity_source_type]['base table'];
+    $context['sandbox']['id'] = $context['sandbox']['entity_info'][$entity_source_type]['entity keys']['id'];
+    $context['sandbox']['source_id'] = entity_extract_ids($entity_source_type, $entity_source);
+    $context['sandbox']['target_id'] = entity_extract_ids($entity_target_type, $entity_target);
+
     $context['results']['tables'] = array();
     $context['results']['tables_not'] = array();
   }
 
-  if ($entity_source_type === $entity_target_type) {
-    $schema = drupal_get_complete_schema();
-    $entity_info = entity_get_info();
-    $base_table = $entity_info[$entity_source_type]['base table'];
-    $id = $entity_info[$entity_source_type]['entity keys']['id'];
-    $source_id = entity_extract_ids($entity_source_type, $entity_source);
-    $target_id = entity_extract_ids($entity_target_type, $entity_target);
-    if (isset($source_id[0]) && isset($target_id[0])) {
-      foreach ($schema as $table => $info) {
-        if (isset($info['foreign keys'])) {
-          foreach ($info['foreign keys'] as $foreign_key => $foreign_key_info) {
-            if (isset($foreign_key_info['table']) && $foreign_key_info['table'] === $base_table && isset($foreign_key_info['columns']) && count($foreign_key_info['columns']) > 0) {
-              foreach ($foreign_key_info['columns'] as $column => $reference) {
-                if ($reference === $id) {
-                  if (!in_array($id, $info['primary key'])) {
-                    if (isset($selected_tables[$table]['doit']) && $selected_tables[$table]['doit'] === 1) {
-                      $num_updated = db_update($table)
-                        ->fields(array(
-                            $column => $target_id[0],
-                          ))
-                        ->condition($column, $source_id[0])
-                        ->execute();
-                      $context['results']['tables'][] = $num_updated . ' ' . $column . ' columns updated in ' . $table;
-                    }
-                  }
-                  else {
-                    $context['results']['tables_not'][] = 'Check ' . $column . ' in ' . $table . ' because this is a primary key. Please update manually if necessary.';
-                  }
+  if ($entity_source_type !== $entity_target_type || !isset($context['sandbox']['source_id'][0]) || !isset($context['sandbox']['target_id'][0]) || count($context['sandbox']['schema']) <= 0 || $context['sandbox']['schema_total'] === 0) {
+    $context['finished'] = 1;
+  }
+  else {
+    $context['finished'] = 1 - (count($context['sandbox']['schema']) / $context['sandbox']['schema_total']);
+    reset($context['sandbox']['schema']);
+    $table = key($context['sandbox']['schema']);
+    $info = array_shift($context['sandbox']['schema']);
+    if (isset($info['foreign keys'])) {
+      foreach ($info['foreign keys'] as $foreign_key => $foreign_key_info) {
+        if (isset($foreign_key_info['table']) && $foreign_key_info['table'] === $context['sandbox']['base_table'] && isset($foreign_key_info['columns']) && count($foreign_key_info['columns']) > 0) {
+          foreach ($foreign_key_info['columns'] as $column => $reference) {
+            if ($reference === $context['sandbox']['id']) {
+              if (!in_array($context['sandbox']['id'], $info['primary key'])) {
+                if (isset($selected_tables[$table]['doit']) && $selected_tables[$table]['doit'] === 1) {
+                  $num_updated = db_update($table)
+                    ->fields(array(
+                        $column => $context['sandbox']['target_id'][0],
+                      ))
+                    ->condition($column, $context['sandbox']['source_id'][0])
+                    ->execute();
+                  $context['results']['tables'][] = $num_updated . ' ' . $column . ' columns updated in ' . $table;
                 }
+              }
+              else {
+                $context['results']['tables_not'][] = 'Check ' . $column . ' in ' . $table . ' because this is a primary key. Please update manually if necessary.';
               }
             }
           }
@@ -536,7 +541,6 @@ function _simpleentitymerge_update_tables($entity_source, $entity_source_type, $
       }
     }
   }
-  $context['finished'] = 1;
 }
 
 /**

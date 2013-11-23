@@ -167,7 +167,7 @@ function simpleentitymerge_admin_form($form, &$form_state) {
                           '#default_value' => 0,
                         );
 
-                        if (in_array($id, $info['primary key'])) {
+                        if (isset($info['primary key']) && in_array($id, $info['primary key'])) {
                           $form['foreignkeys'][$table]['doit']['#disabled'] = TRUE;
                         }
                       }

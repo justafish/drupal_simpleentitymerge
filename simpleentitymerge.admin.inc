@@ -147,17 +147,15 @@ function simpleentitymerge_admin_form($form, &$form_state) {
 
           $form['update_references'] = array(
             '#type' => 'checkbox',
-            '#title' => 'Replace entity references',
+            '#title' => 'Replace entity references (Resaves entities fully)',
             '#default_value' => 1,
           );
 
-          if ($target['entity_type'] === 'user' && $source['entity_type'] === 'user') {
-            $form['update_author'] = array(
-              '#type' => 'checkbox',
-              '#title' => 'Replace authoring info',
-              '#default_value' => 1,
-            );
-          }
+          $form['update_miscellaneous_references'] = array(
+            '#type' => 'checkbox',
+            '#title' => 'Attempt to update usages of this entity\'s ID in tables that declare usage in hook_schema',
+            '#default_value' => 1,
+          );
 
           $form['delete_source'] = array(
             '#type' => 'checkbox',
@@ -280,9 +278,9 @@ function simpleentitymerge_admin_form_submit($form, &$form_state) {
             $batch['operations'][] = array('_simpleentitymerge_update_references_field', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
           }
 
-          // Update authoring information when merging together two users.
-          if (isset($form_state['values']['update_author']) && $form_state['values']['update_author'] === 1) {
-            $batch['operations'][] = array('_simpleentitymerge_update_author', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
+          // Update miscellaneous references.
+          if ($form_state['values']['update_miscellaneous_references'] === 1) {
+            $batch['operations'][] = array('_simpleentitymerge_update_tables', array($source_entity[$source_id], $source_type, $target_entity[$target_id], $target_type));
           }
 
           // Delete the source entity.
@@ -355,6 +353,7 @@ function _simpleentitymerge_merge_entities($entity_source, $entity_source_type, 
  */
 function _simpleentitymerge_update_references_field($entity_source, $entity_source_type, $entity_target, $entity_target_type, &$context) {
   if (empty($context['sandbox'])) {
+    $sandbox['results']['references'] = array();
     $context['sandbox']['entities'] = entity_get_info();
     $context['sandbox']['entity_types'] = array_keys($context['sandbox']['entities']);
     $context['sandbox']['entity_types_total'] = count($context['sandbox']['entity_types']);
@@ -376,12 +375,12 @@ function _simpleentitymerge_update_references_field($entity_source, $entity_sour
 
     $context['sandbox']['progress'] = 0;
   }
-  $context['finished'] = 1 - ($context['sandbox']['progress'] / ($context['sandbox']['entity_types_total'] * $context['sandbox']['fields_total']));
 
-  if (empty($context['sandbox']['current_entity'])) {
+  if (empty($context['sandbox']['current_entity']) || ($context['sandbox']['entity_types_total'] * $context['sandbox']['fields_total']) === 0) {
     $context['finished'] = 1;
   }
   else {
+    $context['finished'] = 1 - ($context['sandbox']['progress'] / ($context['sandbox']['entity_types_total'] * $context['sandbox']['fields_total']));
     $query = new EntityFieldQuery();
     $query->entityCondition('entity_type', $context['sandbox']['current_entity'])
       ->fieldCondition($context['sandbox']['current_field'], 'target_id', $entity_source->{$context['sandbox']['source_id_property']})
@@ -404,12 +403,12 @@ function _simpleentitymerge_update_references_field($entity_source, $entity_sour
           $saved = entity_save($context['sandbox']['current_entity'], $item);
           if ($saved === FALSE) {
             $id = entity_extract_ids($context['sandbox']['current_entity'], $item);
-            $sandbox['results'][] = $context['sandbox']['current_entity'] . ' - ' . $id[0];
+            $sandbox['results']['references'][] = $context['sandbox']['current_entity'] . ' - ' . $id[0];
           }
         }
         catch (Exception $e) {
           $id = entity_extract_ids($context['sandbox']['current_entity'], $item);
-          $sandbox['results'][] = $context['sandbox']['current_entity'] . ' - ' . $id[0];
+          $sandbox['results']['references'][] = $context['sandbox']['current_entity'] . ' - ' . $id[0];
         }
       }
     }
@@ -429,7 +428,7 @@ function _simpleentitymerge_update_references_field($entity_source, $entity_sour
 }
 
 /**
- * Switch the author on all entities from one to another.
+ * Update any remaining tables referencing an entity's id.
  *
  * @param stdClass $entity_source
  * @param string $entity_source_type
@@ -438,61 +437,47 @@ function _simpleentitymerge_update_references_field($entity_source, $entity_sour
  * @param array $context
  *   A BatchAPI compatible array for storing information on the current state of processing.
  */
-function _simpleentitymerge_update_author($entity_source, $entity_source_type, $entity_target, $entity_target_type, &$context) {
-  if ($entity_source_type === 'user' && $entity_target_type === 'user') {
-    if (empty($context['sandbox']['entity_info'])) {
-      $context['sandbox']['entity_info'] = entity_get_info();
-    }
-    if (empty($context['sandbox']['update_author'])) {
-      $context['sandbox']['update_author']['uid'] = $context['sandbox']['entity_info']['user']['entity keys']['id'];
-      $context['sandbox']['update_author']['entity_types'] = array_keys($context['sandbox']['entity_info']);
-      if (($key = array_search('user', $context['sandbox']['update_author']['entity_types'])) !== false) {
-        unset($context['sandbox']['update_author']['entity_types'][$key]);
-      }
-      $context['sandbox']['update_author']['entity_types_total'] = count($context['sandbox']['update_author']['entity_types']);
-      $context['sandbox']['update_author']['current_entity'] = array_shift($context['sandbox']['update_author']['entity_types']);
-    }
+function _simpleentitymerge_update_tables($entity_source, $entity_source_type, $entity_target, $entity_target_type, &$context) {
+  if (empty($context['sandbox'])) {
+    $context['results']['tables'] = array();
+    $context['results']['tables_not'] = array();
+  }
 
-    $context['finished'] = 1 - (count($context['sandbox']['update_author']['entity_types']) / $context['sandbox']['update_author']['entity_types_total']);
-
-    if (!empty($context['sandbox']['update_author']['current_entity']) && !empty($context['sandbox']['update_author']['uid'])) {
-      $entity = $context['sandbox']['update_author']['current_entity'];
-      $query = new EntityFieldQuery();
-      $query->entityCondition('entity_type', $entity)
-        ->propertyCondition($context['sandbox']['update_author']['uid'], $entity_source->{$context['sandbox']['update_author']['uid']})
-        ->range(0, 5);
-      $result = $query->execute();
-      if (isset($result[$entity]) && count($result[$entity]) > 0) {
-        $ids = array_keys($result[$entity]);
-        $items = entity_load($entity, $ids);
-        foreach ($items as $item) {
-          if (isset($item->uid)) {
-            $item->uid = $entity_target->uid;
-            try {
-              $saved = entity_save($entity, $item);
-              if ($saved === FALSE) {
-                $id = entity_extract_ids($entity, $item);
-                $sandbox['results'][] = $entity . ' - ' . $id[0];
+  if ($entity_source_type === $entity_target_type) {
+    $schema = drupal_get_complete_schema();
+    $entity_info = entity_get_info();
+    $base_table = $entity_info[$entity_source_type]['base table'];
+    $id = $entity_info[$entity_source_type]['entity keys']['id'];
+    $source_id = entity_extract_ids($entity_source_type, $entity_source);
+    $target_id = entity_extract_ids($entity_target_type, $entity_target);
+    if (isset($source_id[0]) && isset($target_id[0])) {
+      foreach ($schema as $table => $info) {
+        if (isset($info['foreign keys'])) {
+          foreach ($info['foreign keys'] as $foreign_key => $foreign_key_info) {
+            if (isset($foreign_key_info['table']) && $foreign_key_info['table'] === $base_table && isset($foreign_key_info['columns']) && count($foreign_key_info['columns']) > 0) {
+              foreach ($foreign_key_info['columns'] as $column => $reference) {
+                if ($reference === $id) {
+                  if (!in_array($id, $info['primary key'])) {
+                    $num_updated = db_update($table)
+                      ->fields(array(
+                          $column => $target_id[0],
+                        ))
+                      ->condition($column, $source_id[0])
+                      ->execute();
+                    $context['results']['tables'][] = $num_updated . ' ' . $column . ' columns updated in ' . $table;
+                  }
+                  else {
+                    $context['results']['tables_not'][] = 'Did not update ' . $column . ' in ' . $table . ' because this is a primary key. Please update manually if necessary.';
+                  }
+                }
               }
-            }
-            catch (Exception $e) {
-              $id = entity_extract_ids($entity, $item);
-              $sandbox['results'][] = $entity . ' - ' . $id[0];
             }
           }
         }
       }
-      else {
-        $context['sandbox']['update_author']['current_entity'] = array_shift($context['sandbox']['update_author']['entity_types']);
-      }
-    }
-    else {
-      $context['finished'] = 1;
     }
   }
-  else {
-    $context['finished'] = 1;
-  }
+  $context['finished'] = 1;
 }
 
 /**
@@ -561,19 +546,22 @@ function _simpleentitymerge_allowed_entity_properties() {
  * @param $operations
  */
 function _simpleentitymerge_batch_finished($success, $results, $operations) {
-  if ($success) {
-    if (count($results) > 0) {
-      $message = count($results) . ' ' . t('were unable to be processed.');
-      $message .= theme('item_list', $results);
-    }
-    else {
-      $message = t('Completed');
-    }
-    drupal_set_message($message);
-  }
-  else {
+  if (!$success) {
     $error_operation = reset($operations);
     $message = t('An error occurred while processing %error_operation with arguments: @arguments', array('%error_operation' => $error_operation[0], '@arguments' => print_r($error_operation[1], TRUE)));
     drupal_set_message($message, 'error');
   }
+
+  $message = '';
+  if (isset($results['references']) && count($results['references']) > 0) {
+    $message = count($results) . ' ' . t('were unable to be processed.');
+    $message .= theme('item_list', array('items' => $results['references']));
+  }
+  if (isset($results['tables_not']) && count($results['tables_not']) > 0) {
+    $message .= theme('item_list', array('items' => $results['tables_not']));
+  }
+  if (isset($results['tables']) && count($results['tables']) > 0) {
+    $message .= theme('item_list', array('items' => $results['tables']));
+  }
+  drupal_set_message($message);
 }

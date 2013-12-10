@@ -9,205 +9,299 @@
  * @return array
  */
 function simpleentitymerge_admin_form($form, &$form_state) {
-  $form = array();
+  // Select the correct stage.
   $form_state['stage'] = empty($form_state['stage']) ? 'select bundle' : $form_state['stage'];
+  // If the "Back" button was used, return to the previous stage.
+  if (!empty($form_state['values']['op']) && $form_state['values']['op'] === 'Back') {
+    $stages = array(
+      'select bundle',
+      'select instances',
+      'compare instances',
+      'overwrite fields',
+    );
+    $stage_pos = array_search($form_state['stage'], $stages);
+    if ($stage_pos !== FALSE && $stage_pos > 1) {
+      $form_state['stage'] = $stages[$stage_pos - 2];
+    }
+  }
 
   switch ($form_state['stage']) {
     case 'select bundle':
-      $options = array();
-      $entities = field_info_bundles();
-      foreach ($entities as $entity => $bundles) {
-        $options[$entity] = array();
-        foreach ($bundles as $bundle => $info) {
-          $options[$entity][$entity . '--' . $bundle] = $bundle;
-        }
-      }
-      $form['entity_bundle_source'] = array(
-        '#title' => t('Source'),
-        '#type' => 'select',
-        '#options' => $options,
-      );
-      $form['entity_bundle_target'] = array(
-        '#title' => t('Target'),
-        '#type' => 'select',
-        '#options' => $options,
-      );
-
+      _simpleentitymerge_admin_form__select_bundle($form);
+      // Set the next stage.
       $form_state['stage'] = 'select instances';
       break;
-
     case 'select instances':
-      if (!empty($form_state['values']['entity_bundle_source']) && !empty($form_state['values']['entity_bundle_target'])) {
-        $entity_bundle_source = explode('--', $form_state['values']['entity_bundle_source'], 2);
-        $entity_bundle_target = explode('--', $form_state['values']['entity_bundle_target'], 2);
-        if (count($entity_bundle_source) === 2 && count($entity_bundle_target) === 2) {
-          $form['source'] = array(
-            '#type' => 'entityreference',
-            '#title' => t('Source'),
-            '#era_entity_type' => $entity_bundle_source[0],
-            '#era_bundles' => array($entity_bundle_source[1]),
-            '#era_cardinality' => 3,
-          );
+      // Previous stage form values.
+      $form['entity_bundle_source'] = array(
+        '#type' => 'hidden',
+        '#value' => $form_state['values']['entity_bundle_source'],
+      );
+      $form['entity_bundle_target'] = array(
+        '#type' => 'hidden',
+        '#value' => $form_state['values']['entity_bundle_target'],
+      );
 
-          $form['target'] = array(
-            '#type' => 'entityreference',
-            '#title' => t('Target'),
-            '#era_entity_type' => $entity_bundle_target[0],
-            '#era_bundles' => array($entity_bundle_target[1]),
-            '#era_cardinality' => 3,
-          );
+      _simpleentitymerge_admin_form__select_instances($form, $form_state);
 
-          $form_state['stage'] = 'compare instances';
+      // Set the next stage.
+      $form_state['stage'] = 'compare instances';
+      break;
+    case 'compare instances':
+      // Previous stage form values.
+      $form['entity_bundle_source'] = array(
+        '#type' => 'hidden',
+        '#value' => $form_state['values']['entity_bundle_source'],
+      );
+      $form['entity_bundle_target'] = array(
+        '#type' => 'hidden',
+        '#value' => $form_state['values']['entity_bundle_target'],
+      );
+      $form['source'] = array(
+        '#type' => 'hidden',
+        '#value' => $form_state['values']['source'],
+      );
+
+      $form['target'] = array(
+        '#type' => 'hidden',
+        '#value' => $form_state['values']['target'],
+      );
+
+      _simplentitymerge_admin_form__compare_instances($form, $form_state);
+
+      // Set the next stage.
+      $form_state['stage'] = 'overwrite fields';
+      break;
+  }
+
+  return $form;
+}
+
+/**
+ * Helper function to create the select bundle form.
+ *
+ * @param $form
+ * @param $form_state
+ */
+function _simpleentitymerge_admin_form__select_bundle(&$form) {
+  $options = array();
+  $entities = field_info_bundles();
+  foreach ($entities as $entity => $bundles) {
+    $options[$entity] = array();
+    foreach ($bundles as $bundle => $info) {
+      $options[$entity][$entity . '--' . $bundle] = $bundle;
+    }
+  }
+  $form['entity_bundle_source'] = array(
+    '#title' => t('Source'),
+    '#type' => 'select',
+    '#options' => $options,
+    '#required' => TRUE,
+  );
+  $form['entity_bundle_target'] = array(
+    '#title' => t('Target'),
+    '#type' => 'select',
+    '#options' => $options,
+    '#required' => TRUE,
+  );
+
+  $form['next'] = array(
+    '#type' => 'submit',
+    '#value' => t('Next'),
+  );
+}
+
+/**
+ * Helper function to create the select instances form.
+ *
+ * @param $form
+ * @param $form_state
+ */
+function _simpleentitymerge_admin_form__select_instances(&$form, &$form_state) {
+  $entity_bundle_source = explode('--', $form_state['values']['entity_bundle_source'], 2);
+  $entity_bundle_target = explode('--', $form_state['values']['entity_bundle_target'], 2);
+  $form['source'] = array(
+    '#type' => 'entityreference',
+    '#title' => t('Source'),
+    '#era_entity_type' => $entity_bundle_source[0],
+    '#era_bundles' => array($entity_bundle_source[1]),
+    '#era_cardinality' => 3,
+    '#required' => TRUE,
+  );
+
+  $form['target'] = array(
+    '#type' => 'entityreference',
+    '#title' => t('Target'),
+    '#era_entity_type' => $entity_bundle_target[0],
+    '#era_bundles' => array($entity_bundle_target[1]),
+    '#era_cardinality' => 3,
+    '#required' => TRUE,
+  );
+
+  $form_state['stage'] = 'compare instances';
+  $form['back'] = array(
+    '#type' => 'submit',
+    '#value' => t('Back'),
+  );
+  $form['next'] = array(
+    '#type' => 'submit',
+    '#value' => t('Next'),
+  );
+}
+
+/**
+ * Helper function to create the compare instances table/form.
+ *
+ * @param $form
+ * @param $form_state
+ */
+function _simplentitymerge_admin_form__compare_instances(&$form, &$form_state) {
+  $source = $form_state['values']['source'][0];
+  $target = $form_state['values']['target'][0];
+  $source_entity = entity_load($source['entity_type'], array($source['entity_id']));
+  $target_entity = entity_load($target['entity_type'], array($target['entity_id']));
+  if (!empty($source_entity[$source['entity_id']]) && !empty($target_entity[$target['entity_id']])) {
+    $form['source_type'] = array(
+      '#type' => 'hidden',
+      '#value' => $source['entity_type'],
+    );
+    $form['source_id'] = array(
+      '#type' => 'hidden',
+      '#value' => $source['entity_id'],
+    );
+    $form['target_type'] = array(
+      '#type' => 'hidden',
+      '#value' => $target['entity_type'],
+    );
+    $form['target_id'] = array(
+      '#type' => 'hidden',
+      '#value' => $target['entity_id'],
+    );
+    $form['fields'] = array(
+      '#tree' => TRUE,
+    );
+
+    // Iterate through every field available, regardless of what it's attached to.
+    $field_info_instances = field_info_instances();
+    $bundle_fields = $field_info_instances[$target['entity_type']][$target['entity_bundle']];
+    foreach ($bundle_fields as $field_name => $field) {
+
+      // Pick out fields that are available on both the source and target entities.
+      if (isset($field_info_instances[$target['entity_type']][$target['entity_bundle']][$field_name]) && isset($field_info_instances[$source['entity_type']][$source['entity_bundle']][$field_name])) {
+        $form['fields'][$field_name]['#label'] = $field['label'];
+
+        // Load the field items for the source and target entity.
+        $source_items = field_get_items($source['entity_type'], $source_entity[$source['entity_id']], $field_name);
+        $target_items = field_get_items($target['entity_type'], $target_entity[$target['entity_id']], $field_name);
+
+        // List the field item values.
+        if (is_array($source_items)) {
+          foreach ($source_items as $source_item) {
+            $view = field_view_value($source['entity_type'], $source_entity[$source['entity_id']], $field_name, $source_item);
+            $form['fields'][$field_name]['#source_value'] = isset($view['#markup']) ? $view['#markup'] : '';
+          }
+        }
+        if (is_array($target_items)) {
+          foreach ($target_items as $target_item) {
+            $view = field_view_value($target['entity_type'], $target_entity[$target['entity_id']], $field_name, $target_item);
+            $form['fields'][$field_name]['#target_value'] = isset($view['#markup']) ? $view['#markup'] : '';
+          }
+        }
+
+        // Allow the field to be selected for merging.
+        $form['fields'][$field_name]['doit'] = array(
+          '#type' => 'checkbox',
+          '#default_value' => 1,
+        );
+
+      }
+    }
+
+    // Get the entity properties if they are of the same entity type.
+    if ($source['entity_type'] === $target['entity_type']) {
+      $form['properties'] = array(
+        '#tree' => TRUE,
+      );
+
+      $entity_properties = entity_get_property_info();
+      $allowed_properties = _simpleentitymerge_allowed_entity_properties();
+      if (isset($allowed_properties[$source['entity_type']])) {
+        foreach ($allowed_properties[$source['entity_type']] as $property) {
+          if (in_array($property, array_keys($entity_properties[$source['entity_type']]['properties']))) {
+
+            $form['properties'][$property]['#source_value'] = isset($source_entity[$source['entity_id']]->{$property}) ? $source_entity[$source['entity_id']]->{$property} : '';
+            $form['properties'][$property]['#target_value'] = isset($target_entity[$target['entity_id']]->{$property}) ? $target_entity[$target['entity_id']]->{$property} : '';
+
+            // Allow the property to be selected for merging.
+            $form['properties'][$property]['doit'] = array(
+              '#type' => 'checkbox',
+              '#default_value' => 1,
+            );
+          }
         }
       }
-      break;
+    }
 
-    case 'compare instances':
-      if (!empty($form_state['values']['source'][0]) && !empty($form_state['values']['target'][0])) {
-        $source = $form_state['values']['source'][0];
-        $target = $form_state['values']['target'][0];
-        $source_entity = entity_load($source['entity_type'], array($source['entity_id']));
-        $target_entity = entity_load($target['entity_type'], array($target['entity_id']));
-        if (!empty($source_entity[$source['entity_id']]) && !empty($target_entity[$target['entity_id']])) {
-          $form['source_type'] = array(
-            '#type' => 'hidden',
-            '#value' => $source['entity_type'],
-          );
-          $form['source_id'] = array(
-            '#type' => 'hidden',
-            '#value' => $source['entity_id'],
-          );
-          $form['target_type'] = array(
-            '#type' => 'hidden',
-            '#value' => $target['entity_type'],
-          );
-          $form['target_id'] = array(
-            '#type' => 'hidden',
-            '#value' => $target['entity_id'],
-          );
-          $form['fields'] = array(
-            '#tree' => TRUE,
-          );
+    // Show database tables with foreign keys that relate to the entity type, if the
+    // source and target are of the same entity.
+    if ($source['entity_type'] === $target['entity_type']) {
+      $schema = drupal_get_complete_schema();
+      $entity_info = entity_get_info();
+      $base_table = $entity_info[$source['entity_type']]['base table'];
+      $id = $entity_info[$source['entity_type']]['entity keys']['id'];
+      $form['foreignkeys'] = array(
+        '#tree' => TRUE,
+      );
+      foreach ($schema as $table => $info) {
+        if (isset($info['foreign keys'])) {
+          foreach ($info['foreign keys'] as $foreign_key_info) {
+            if (isset($foreign_key_info['table']) && $foreign_key_info['table'] === $base_table && isset($foreign_key_info['columns']) && count($foreign_key_info['columns']) > 0) {
+              foreach ($foreign_key_info['columns'] as $column => $reference) {
+                if ($reference === $id) {
+                  $form['foreignkeys'][$table]['#columns'][] = $column;
 
-          $field_info_instances = field_info_instances();
-          $bundle_fields = $field_info_instances[$target['entity_type']][$target['entity_bundle']];
-          foreach ($bundle_fields as $field_name => $field) {
-
-            $form['fields'][$field_name]['#label'] = $field['label'];
-
-            if (isset($field_info_instances[$target['entity_type']][$target['entity_bundle']][$field_name]) && isset($field_info_instances[$source['entity_type']][$source['entity_bundle']][$field_name])) {
-              $source_items = field_get_items($source['entity_type'], $source_entity[$source['entity_id']], $field_name);
-              $target_items = field_get_items($target['entity_type'], $target_entity[$target['entity_id']], $field_name);
-
-              if (is_array($source_items)) {
-                foreach ($source_items as $source_item) {
-                  $view = field_view_value($source['entity_type'], $source_entity[$source['entity_id']], $field_name, $source_item);
-                  $form['fields'][$field_name]['#source_value'] = isset($view['#markup']) ? $view['#markup'] : '';
-                }
-              }
-              if (is_array($target_items)) {
-                foreach ($target_items as $target_item) {
-                  $view = field_view_value($target['entity_type'], $target_entity[$target['entity_id']], $field_name, $target_item);
-                  $form['fields'][$field_name]['#target_value'] = isset($view['#markup']) ? $view['#markup'] : '';
-                }
-              }
-
-              // Render the field items so they can be displayed to the user.
-              $form['fields'][$field_name]['doit'] = array(
-                '#type' => 'checkbox',
-                '#default_value' => 0,
-              );
-
-            }
-          }
-
-          // Show field properties.
-          if ($source['entity_type'] === $target['entity_type']) {
-
-            $form['properties'] = array(
-              '#tree' => TRUE,
-            );
-
-            $entity_properties = entity_get_property_info();
-            $allowed_properties = _simpleentitymerge_allowed_entity_properties();
-            if (isset($allowed_properties[$source['entity_type']])) {
-              foreach ($allowed_properties[$source['entity_type']] as $property) {
-                if (in_array($property, array_keys($entity_properties[$source['entity_type']]['properties']))) {
-                  $form['properties'][$property]['#source_value'] = isset($source_entity[$source['entity_id']]->{$property}) ? $source_entity[$source['entity_id']]->{$property} : '';
-                  $form['properties'][$property]['#target_value'] = isset($target_entity[$target['entity_id']]->{$property}) ? $target_entity[$target['entity_id']]->{$property} : '';
-
-                  $form['properties'][$property]['doit'] = array(
+                  $form['foreignkeys'][$table]['doit'] = array(
                     '#type' => 'checkbox',
-                    '#default_value' => 0,
+                    '#default_value' => 1,
                   );
-                }
-              }
-            }
-          }
 
-          // Show tables with foreign keys.
-          if ($source['entity_type'] === $target['entity_type']) {
-            $schema = drupal_get_complete_schema();
-            $entity_info = entity_get_info();
-            $base_table = $entity_info[$source['entity_type']]['base table'];
-            $id = $entity_info[$source['entity_type']]['entity keys']['id'];
-            $form['foreignkeys'] = array(
-              '#tree' => TRUE,
-            );
-            foreach ($schema as $table => $info) {
-              if (isset($info['foreign keys'])) {
-                foreach ($info['foreign keys'] as $foreign_key => $foreign_key_info) {
-                  if (isset($foreign_key_info['table']) && $foreign_key_info['table'] === $base_table && isset($foreign_key_info['columns']) && count($foreign_key_info['columns']) > 0) {
-                    foreach ($foreign_key_info['columns'] as $column => $reference) {
-                      if ($reference === $id) {
-                        $form['foreignkeys'][$table]['#columns'][] = $column;
-
-                        $form['foreignkeys'][$table]['doit'] = array(
-                          '#type' => 'checkbox',
-                          '#default_value' => 0,
-                        );
-
-                        if (isset($info['primary key']) && in_array($id, $info['primary key'])) {
-                          $form['foreignkeys'][$table]['doit']['#disabled'] = TRUE;
-                        }
-                      }
-                    }
+                  if (isset($info['primary key']) && in_array($id, $info['primary key'])) {
+                    $form['foreignkeys'][$table]['doit']['#disabled'] = TRUE;
                   }
                 }
               }
             }
           }
-
-          $form['update_references'] = array(
-            '#type' => 'checkbox',
-            '#title' => 'Replace entity references (Resaves entities fully)',
-            '#default_value' => 1,
-          );
-
-          $form['delete_source'] = array(
-            '#type' => 'checkbox',
-            '#title' => 'Delete the source item',
-            '#default_value' => 1,
-          );
-          $form['#theme'] = 'simpleentitymerge_table';
-          $form['#attached'] = array(
-            'css' => array(
-              drupal_get_path('module', 'simpleentitymerge') . "/simpleentitymerge.css",
-          ));
-          $form_state['stage'] = 'overwrite fields';
         }
       }
-      break;
-  }
+    }
 
-  if ($form_state['stage'] !== 'finished') {
-    $form['next'] = array(
-      '#type' => 'submit',
-      '#value' => t('Next'),
+    $form['update_references'] = array(
+      '#type' => 'checkbox',
+      '#title' => 'Replace entity references (Resaves entities fully)',
+      '#default_value' => 1,
     );
-  }
 
-  return $form;
+    $form['delete_source'] = array(
+      '#type' => 'checkbox',
+      '#title' => 'Delete the source item',
+      '#default_value' => 1,
+    );
+
+    $form['#theme'] = 'simpleentitymerge_table';
+    $form['#attached'] = array(
+      'css' => array(
+        drupal_get_path('module', 'simpleentitymerge') . "/simpleentitymerge.css",
+      ));
+  }
+  $form['back'] = array(
+    '#type' => 'submit',
+    '#value' => t('Back'),
+  );
+  $form['next'] = array(
+    '#type' => 'submit',
+    '#value' => t('Next'),
+  );
 }
 
 /**
@@ -228,8 +322,8 @@ function theme_simpleentitymerge_table($variables) {
         3 => drupal_render($form['fields'][$field_name]['doit']),
       );
     }
-    if (count($rows > 0)) {
-      $output .= theme('table', array('header' => $header, 'rows' => $rows));
+    if (count($rows) > 0) {
+      $output .= '<h2>' . t('Fields') . '</h2>' . theme('table', array('header' => $header, 'rows' => $rows));
     }
   }
 
@@ -245,7 +339,7 @@ function theme_simpleentitymerge_table($variables) {
       );
     }
     if (count($rows) > 0) {
-      $output .= theme('table', array('header' => $header, 'rows' => $rows));
+      $output .= '<h2>' . t('Properties') . '</h2>' . theme('table', array('header' => $header, 'rows' => $rows));
     }
   }
 
@@ -263,7 +357,7 @@ function theme_simpleentitymerge_table($variables) {
       }
     }
     if (count($rows) > 0) {
-      $output .= theme('table', array('header' => $header, 'rows' => $rows));
+      $output .= '<h2>' . t('Database Foreign Keys') . '</h2>' . theme('table', array('header' => $header, 'rows' => $rows));
     }
   }
 
@@ -278,7 +372,7 @@ function theme_simpleentitymerge_table($variables) {
  * @param array $form_state
  */
 function simpleentitymerge_admin_form_submit($form, &$form_state) {
-  if ($form_state['stage'] === 'overwrite fields') {
+  if ($form_state['stage'] === 'overwrite fields' && !empty($form_state['values']['op']) && $form_state['values']['op'] !== 'Back') {
     $source_type = !empty($form_state['values']['source_type']) ? $form_state['values']['source_type'] : false;
     $source_id = !empty($form_state['values']['source_id']) ? $form_state['values']['source_id'] : false;
     $target_type = !empty($form_state['values']['target_type']) ? $form_state['values']['target_type'] : false;
@@ -517,7 +611,7 @@ function _simpleentitymerge_update_tables($entity_source, $entity_source_type, $
     $table = key($context['sandbox']['schema']);
     $info = array_shift($context['sandbox']['schema']);
     if (isset($info['foreign keys'])) {
-      foreach ($info['foreign keys'] as $foreign_key => $foreign_key_info) {
+      foreach ($info['foreign keys'] as $foreign_key_info) {
         if (isset($foreign_key_info['table']) && $foreign_key_info['table'] === $context['sandbox']['base_table'] && isset($foreign_key_info['columns']) && count($foreign_key_info['columns']) > 0) {
           foreach ($foreign_key_info['columns'] as $column => $reference) {
             if ($reference === $context['sandbox']['id']) {

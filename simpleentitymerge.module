@@ -5,9 +5,9 @@
  */
 function simpleentitymerge_menu() {
   $items = array();
-  $items['admin/simpleentitymerge'] = array(
+  $items['admin/structure/simpleentitymerge'] = array(
     'title' => 'Simple Entity Merge',
-    'description' => 'Return item for original entity.',
+    'description' => 'Merge together entities.',
     'page callback' => 'drupal_get_form',
     'page arguments' => array('simpleentitymerge_admin_form'),
     'access arguments' => array('use simpleentitymerge'),

@@ -191,9 +191,10 @@ function _simpleentitymerge_admin_form__select_bundle(&$form, &$form_state) {
   foreach ($entities as $entity => $bundles) {
     $options[$entity] = array();
     foreach ($bundles as $bundle => $info) {
-      $options[$entity][$entity . '--' . $bundle] = $bundle;
+      $options[$entity][$entity . '--' . $bundle] = $info['label'];
     }
   }
+  dpm($options);
   $form['entity_bundle_source'] = array(
     '#title' => t('Source'),
     '#type' => 'select',

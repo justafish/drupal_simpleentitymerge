@@ -415,11 +415,13 @@ function _simpleentitymerge_admin_form__compare_instances(&$form, &$form_state) 
  * Theme function to display the field values in a table and let the user select which to keep.
  */
 function theme_simpleentitymerge_table($variables) {
+  drupal_add_js('misc/tableselect.js');
+  drupal_add_library('system', 'drupal.collapse');
   $form = $variables['form'];
   $output = '';
 
   if (array_key_exists('fields', $form)) {
-    $header = array(t('Field Name'), t('Source Value'), t('Target Value'), t('Use Source Value?'));
+    $header = array(t('Field Name'), t('Source Value'), t('Target Value'), array('class' => array('select-all')));
     $rows = array();
     foreach (element_children($form['fields']) as $field_name) {
       $rows[] = array(
@@ -430,12 +432,19 @@ function theme_simpleentitymerge_table($variables) {
       );
     }
     if (count($rows) > 0) {
-      $output .= '<h2>' . t('Fields') . '</h2>' . theme('table', array('header' => $header, 'rows' => $rows));
+      $output .= theme_fieldset(array('element' => array(
+          '#attributes' => array('class' => array('collapsible')),
+          '#children' => '',
+          '#description' => '',
+          '#id' => NULL,
+          '#title' => t('Fields'),
+          '#value' => theme('table', array('header' => $header, 'rows' => $rows)),
+        )));
     }
   }
 
   if (array_key_exists('properties', $form)) {
-    $header = array(t('Property'), t('Source Value'), t('Target Value'), t('Use Source Value?'));
+    $header = array(t('Property'), t('Source Value'), t('Target Value'), array('class' => array('select-all')));
     $rows = array();
     foreach (element_children($form['properties']) as $field_name) {
       $rows[] = array(
@@ -446,12 +455,19 @@ function theme_simpleentitymerge_table($variables) {
       );
     }
     if (count($rows) > 0) {
-      $output .= '<h2>' . t('Properties') . '</h2>' . theme('table', array('header' => $header, 'rows' => $rows));
+      $output .= theme_fieldset(array('element' => array(
+          '#attributes' => array('class' => array('collapsible')),
+          '#children' => '',
+          '#description' => '',
+          '#id' => NULL,
+          '#title' => t('Properties'),
+          '#value' => theme('table', array('header' => $header, 'rows' => $rows)),
+        )));
     }
   }
 
   if (array_key_exists('foreignkeys', $form)) {
-    $header = array(t('Table'), t('Column'), t('Update?'));
+    $header = array(t('Table'), t('Column'), array('class' => array('select-all')));
     $rows = array();
     foreach (element_children($form['foreignkeys']) as $table) {
       if (!empty($form['foreignkeys'][$table]['#columns'])) {
@@ -464,7 +480,14 @@ function theme_simpleentitymerge_table($variables) {
       }
     }
     if (count($rows) > 0) {
-      $output .= '<h2>' . t('Database Foreign Keys') . '</h2>' . theme('table', array('header' => $header, 'rows' => $rows));
+      $output .= theme_fieldset(array('element' => array(
+          '#attributes' => array('class' => array('collapsible')),
+          '#children' => '',
+          '#description' => t('IDs of entities are used in many places. For example, to retain the files associated with a user when merging.'),
+          '#id' => NULL,
+          '#title' => t('Database Foreign Keys'),
+          '#value' => theme('table', array('header' => $header, 'rows' => $rows)),
+        )));
     }
   }
 

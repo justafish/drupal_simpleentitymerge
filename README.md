@@ -13,6 +13,3 @@ Features:
 - Update entity references
 - Update authoring information
 - Delete the source entity
-
-Known issues:
-- file_usages behaves badly when migration file fields on user entities

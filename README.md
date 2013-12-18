@@ -10,6 +10,7 @@ A module that allows two entities to be merged together. Enable and visit /admin
 Features:
 - Merge fields
 - Merge properties (with an API hook to expose more)
+- Update foreign database keys
 - Update entity references
 - Update authoring information
 - Delete the source entity
